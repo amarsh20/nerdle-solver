@@ -3,12 +3,16 @@
 Usage (from anywhere):
     python3 update_past_answers.py                       # copy past_solution_list.json into the page
     python3 update_past_answers.py 12+35=47 9*8-6=66     # add answers to the JSON file, then copy
+    python3 update_past_answers.py --publish 12+35=47    # ...and commit + push so GitHub Pages updates
 
 The page carries its own copy of the list, so run this after every change to
 past_solution_list.json. The notebook reads the same JSON file, so both stay in step.
+The live page (https://amarsh20.github.io/nerdle-solver/) only changes after --publish
+(or your own git commit + push); GitHub Pages takes a minute or so to redeploy.
 """
 import json
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -41,7 +45,23 @@ def main(new_answers):
         sys.exit(f"Couldn't find the past-answers block in {PAGE.name}.")
     PAGE.write_text(html)
     print(f"{PAGE.name} now excludes {len(past)} past answers.")
+    return len(past)
+
+
+def publish(count):
+    git = lambda *args: subprocess.run(["git", "-C", str(HERE), *args], check=True)
+    git("add", JSON_FILE.name, PAGE.name)
+    if subprocess.run(["git", "-C", str(HERE), "diff", "--cached", "--quiet"]).returncode == 0:
+        print("Nothing new to publish.")
+        return
+    git("commit", "-q", "-m", f"Update past answers ({count})")
+    git("push", "-q")
+    print("Pushed. The live page updates in a minute or so.")
 
 
 if __name__ == "__main__":
-    main(sys.argv[1:])
+    args = sys.argv[1:]
+    do_publish = "--publish" in args
+    count = main([a for a in args if a != "--publish"])
+    if do_publish:
+        publish(count)
