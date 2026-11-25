@@ -1,0 +1,7 @@
+# Only the published solver page is tracked; the notebook and data files stay local.
+*
+!.gitignore
+!index.html
+!nerdle_solver.html
+!update_past_answers.py
+!past_solution_list.json

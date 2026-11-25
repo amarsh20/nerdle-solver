@@ -1,0 +1,545 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nerdle Solver</title>
+<style>
+  :root {
+    --bg: #f6f5f2; --card: #ffffff; --text: #1d1d1f; --muted: #6b6b70; --line: #e3e1dc;
+    --accent: #2f6f5e; --accent-soft: #e6f0ec; --err: #b3261e;
+    --tile-g: #2f8a6f; --tile-p: #8b2b6c; --tile-b: #2e2e33; --tile-empty: #ffffff;
+    --chip: #f1efea; --chip-hover: #e5e2db;
+    --mono: ui-monospace, "SF Mono", "Cascadia Mono", "Roboto Mono", Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #141416; --card: #1d1d20; --text: #ececee; --muted: #9a9aa2; --line: #2e2e33;
+      --accent: #6cc3a6; --accent-soft: #1f2e29; --err: #f2b8b5;
+      --tile-g: #2f8a6f; --tile-p: #8b2b6c; --tile-b: #3a3a40; --tile-empty: #1d1d20;
+      --chip: #26262a; --chip-hover: #313136;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  main { max-width: 760px; margin: 0 auto; padding: 28px 16px 64px; }
+  h1 { font-size: 24px; margin: 0 0 4px; letter-spacing: -0.01em; }
+  .sub { color: var(--muted); margin: 0 0 22px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 18px; margin-bottom: 16px; }
+  .card h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin: 0 0 12px; font-weight: 600; }
+
+  .row { display: grid; grid-template-columns: 20px 112px 1fr 104px; gap: 10px; align-items: center; padding: 6px 0; }
+  .row + .row { border-top: 1px dashed var(--line); }
+  .row .num { color: var(--muted); font-size: 13px; text-align: right; }
+  input[type=text], textarea { font: 15px var(--mono); color: var(--text); background: var(--bg);
+    border: 1px solid var(--line); border-radius: 8px; padding: 7px 9px; width: 100%; }
+  input[type=text]:focus, textarea:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+  .tiles { display: grid; grid-template-columns: repeat(8, 1fr); gap: 4px; max-width: 320px; }
+  .tile { aspect-ratio: 1; border-radius: 6px; border: 1.5px solid var(--line); background: var(--tile-empty);
+    font: 600 17px var(--mono); color: var(--text); display: flex; align-items: center; justify-content: center;
+    cursor: pointer; user-select: none; padding: 0; }
+  .tile:disabled { cursor: default; }
+  .tile.G { background: var(--tile-g); border-color: var(--tile-g); color: #fff; }
+  .tile.P { background: var(--tile-p); border-color: var(--tile-p); color: #fff; }
+  .tile.B { background: var(--tile-b); border-color: var(--tile-b); color: #fff; }
+  .rowmsg { grid-column: 2 / -1; color: var(--err); font-size: 13px; margin-top: -2px; }
+  .rowmsg:empty { display: none; }
+  .hint { color: var(--muted); font-size: 13px; margin: 10px 0 0; }
+  .hint code { font-family: var(--mono); }
+
+  .controls { display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center; margin-top: 14px; }
+  label.check { display: inline-flex; gap: 7px; align-items: center; cursor: pointer; }
+  button.btn { font: inherit; border-radius: 8px; padding: 7px 14px; cursor: pointer;
+    border: 1px solid var(--line); background: var(--card); color: var(--text); }
+  button.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  @media (prefers-color-scheme: dark) { button.btn.primary { color: #10201b; } }
+  button.btn:disabled { opacity: 0.5; cursor: default; }
+  details.extra { margin-top: 12px; }
+  details.extra summary { cursor: pointer; color: var(--muted); font-size: 13px; }
+  details.extra textarea { margin-top: 8px; min-height: 64px; font-size: 13px; }
+
+  .count { font-size: 40px; font-weight: 700; line-height: 1.1; font-variant-numeric: tabular-nums; }
+  .count small { font-size: 15px; font-weight: 400; color: var(--muted); margin-left: 6px; }
+  .status { color: var(--muted); margin-top: 6px; min-height: 1.5em; }
+  .status.err { color: var(--err); }
+  .progress { height: 4px; background: var(--line); border-radius: 2px; overflow: hidden; margin-top: 8px; display: none; }
+  .progress.on { display: block; }
+  .progress > div { height: 100%; width: 0; background: var(--accent); transition: width 0.1s; }
+
+  table { border-collapse: collapse; width: 100%; margin-top: 6px; }
+  th, td { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--line); }
+  th { font-size: 12px; color: var(--muted); font-weight: 600; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  tr.top td { background: var(--accent-soft); }
+  tr.top td:first-child { border-radius: 6px 0 0 6px; } tr.top td:last-child { border-radius: 0 6px 6px 0; }
+  .eq { font-family: var(--mono); font-size: 16px; background: none; border: none; color: var(--text);
+    padding: 0; cursor: pointer; text-decoration: underline dotted var(--muted); text-underline-offset: 3px; }
+  .eq:hover { color: var(--accent); }
+  .badge { font-size: 11px; color: var(--accent); border: 1px solid var(--accent); border-radius: 99px; padding: 0 6px; margin-left: 6px; }
+  .section { margin-top: 18px; }
+  .section h3 { font-size: 15px; margin: 0 0 4px; }
+  .section p { margin: 0 0 6px; color: var(--muted); font-size: 13px; }
+
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; max-height: 360px; overflow: auto; }
+  .chip { font: 14px var(--mono); background: var(--chip); border: none; border-radius: 6px; padding: 4px 8px;
+    color: var(--text); cursor: pointer; }
+  .chip:hover { background: var(--chip-hover); }
+  details.list summary { cursor: pointer; font-weight: 600; }
+  details.list input { margin-top: 10px; max-width: 240px; }
+  .hidden { display: none !important; }
+
+  @media (max-width: 560px) {
+    .row { grid-template-columns: 18px 1fr 1fr; }
+    .row .tiles { grid-column: 2 / -1; grid-row: 2; max-width: none; }
+    .rowmsg { grid-column: 2 / -1; }
+  }
+</style>
+</head>
+<body>
+<main>
+  <h1>Nerdle Solver</h1>
+  <p class="sub">Enter your guesses and the colors you got back. The page narrows down the possible answers and suggests the best next guess.</p>
+
+  <section class="card">
+    <h2>Guesses</h2>
+    <div id="rows"></div>
+    <p class="hint">Type each guess (e.g. <code>46+32=78</code>), then click the tiles to set colors, or type them as
+      <code>g</code> green, <code>p</code> purple, <code>b</code> black (e.g. <code>gbpppgbb</code>).
+      Click any equation in the results to use it as your next guess.</p>
+    <div class="controls">
+      <label class="check"><input type="checkbox" id="excludePast" checked><span>Exclude past answers (<span id="pastCount">0</span> saved)</span></label>
+      <button class="btn" id="clearBtn" type="button">Clear guesses</button>
+    </div>
+    <details class="extra">
+      <summary>Add more past answers</summary>
+      <textarea id="extraPast" placeholder="Answers since the saved list, separated by spaces, commas or new lines"></textarea>
+    </details>
+  </section>
+
+  <section class="card" id="results">
+    <h2>Results</h2>
+    <div class="count" id="count">…</div>
+    <div class="status" id="status">Building the equation list…</div>
+    <div class="progress" id="progress"><div></div></div>
+
+    <div class="section hidden" id="bestSection">
+      <h3>Best next guess</h3>
+      <p id="bestNote"></p>
+      <table><thead><tr><th>Guess</th><th class="num">Avg. guesses to finish</th></tr></thead><tbody id="bestBody"></tbody></table>
+    </div>
+
+    <div class="section hidden" id="allSection">
+      <h3>Best splitting guess from all equations</h3>
+      <p>Guesses that don't have to be possible answers can sometimes split the remaining answers better. This checks every equation (slower).</p>
+      <button class="btn" id="allBtn" type="button">Search all equations</button>
+      <div id="allOut"></div>
+    </div>
+
+    <div class="section hidden" id="listSection">
+      <details class="list" id="listDetails">
+        <summary id="listSummary">All remaining possibilities</summary>
+        <input type="text" id="listFilter" placeholder="Filter, e.g. *7 or =12">
+        <div class="chips" id="chips"></div>
+      </details>
+    </div>
+  </section>
+</main>
+
+<script id="past-data" type="application/json">["60+38=98","3*2*3=18","22/2-2=9","19-9-9=1","8*2+4=20","21+32=53","9*8-64=8","8-5+7=10","48+35=83","6*2-12=0","6*7-3=39","5*6-6=24","97-73=24","9-6+8=11","48/6-3=5","51-18=33","3+9+8=20","7+10-9=8","4/1*5=20","98/2/7=7","21/3/7=1","5+6*1=11","112/7=16","39-4*8=7","37*4=148","50-8*6=2","6*9-2=52","7+2+4=13","4*2*3=24","62-12=50","85*2=170","18/2-2=7","41-5*7=6","54/9-6=0","6-40/8=1","90-63=27","3+8+2=13","9*6-54=0","5+10-6=9","9*7+2=65","1+8*8=65","9*7/21=3","240/6=40","21+52=73","30/2-6=9","9*9+7=88","9+4*5=29","106-7=99","1+7*6=43","3*8-7=17","13+1-9=5","13+50=63","7*6-42=0","6+6*3=24","1*30/5=6","6+2+6=14","2*6*3=36","445/5=89","5*63=315","48/3/4=4","52-17=35","6*5-4=26","9+3*5=24","7+3+3=13","90-79=11","8*8+2=66","5-35/7=0","5+4+9=18","30+41=71","5*3-13=2","5+7*4=33","92-75=17","30*7=210","18-2*9=0","14-6-1=7","25+12=37","3*6-6=12","14/7+7=9","7+7-10=4","75+22=97","7*5+9=44","6+6*8=54","13-7-6=0","5+5*3=20","10-8*1=2","4*7*3=84","80/2/5=8","32/4-4=4","101-97=4","2*24/8=6","16-6-2=8","78-26=52","43-7*6=1","14-5-3=6","8+2/1=10","8*18=144","7*8+3=59","48+29=77","10+7-8=9","10/2-1=4","7*58=406","72/9-2=6","91*2=182","86-49=37","7+8-2=13","9+8-16=1","41-5*8=1","20/5/2=2","3+6+7=16","22*9=198","22+26=48","4+1+9=14","25-8-8=9","58-22=36","19-7-5=7","12*2/8=3","14+17=31","9*3+3=30","12+3-6=9","15+12=27","5*3+1=16","8/12*3=2","65-8*7=9","70+24=94","32/4-8=0","9*82=738","13+35=48","56/4-6=8","10*4/5=8","35/5/1=7","72/8-4=5","1+10/5=3","66-8*8=2","57*4=228","4*5-2=18","4*14/8=7","60-16=44","18-6-9=3","114/2=57","67+16=83","8*3+1=25","9+6+4=19","91/7-7=6","68+11=79","1-7+14=8","13-4-6=3","79-46=33","1/9*81=9","9*14=126","82-46=36","3-24/8=0","56/4-8=6","70-27=43","252/9=28","657/73=9","88-59=29","6+7-10=3","2+2*5=12","9+5-4=10","4*4+2=18","73-41=32","8/28*7=2","6/18*6=2","56-36=20","77*2=154","71-8*8=7","366/61=6","13-4-3=6","78/6-5=8","35+29=64","425/85=5","64/4-7=9","1+7+9=17","3*6-10=8","45*1/5=9","7*5+8=43","8+4*8=40","38-13=25","1+6+6=13","3+8*6=51","372/62=6","6+6+2=14","744/93=8","76+18=94","3*8+5=29","8*4+9=41","1*3*8=24","96/8/6=2","69*4=276","12-3-6=3","3-9+14=8","63/9-4=3","25/5*1=5","6*8-5=43","2-7+14=9","83-35=48","8*2*5=80","568/8=71","28/4-5=2","96-23=73","9*7+6=69","594/6=99","80-29=51","230/5=46","2+25/5=7","4*7-6=22","5-8+12=9","108/6=18","9*5-7=38","35-5*6=5","8+6-13=1","22+18=40","9*6-50=4","427/61=7","21+26=47","8*3-8=16","9*9-74=7","4+2*3=10","2*2*7=28","57-39=18","9-1+9=17","11-9+2=4","16-5-2=9","95-69=26","21-6-9=6","85-9*9=4","15+11=26","3*8-16=8","13-3-7=3","9*4+4=40","185/37=5","4+2+5=11","16-6*2=4","6*8/24=2","42/3-7=7","18-6-7=5","6+1+9=16","172/86=2","88-58=30","567/63=9","3-8+11=6","35/7+1=6","73-44=29","36/6+1=7","9*42=378","5*7-1=34","26+64=90","21/7+2=5","12-4-6=2","49+35=84","8*6/3=16","45/5-4=5","5*98=490","13+14=27","4*4+1=17","60*9=540","24/3/8=1","32/8+5=9","546/7=78","90/9-3=7","4+14-9=9","6/9*12=8","20*1/5=4","6-9+12=9","15-4-4=7","44-33=11","91*9=819","12-2-2=8","56-34=22","112/28=4","3+7*4=31","3+6*2=15","53+10=63","9-24/8=6","23-9-6=8","45/9-4=1","91-67=24","4*4-3=13","9+2-10=1","99-34=65","292/4=73","6+1+6=13","1*5*8=40","8*7-47=9","231/77=3","99-46=53","70/2/7=5","6*8/3=16","8*83=664","12/6-1=1","62-9*6=8","57+16=73","32/8/4=1","6*6+9=45","67-12=55","9-13+5=1","8+8-11=5","126/42=3","51-30=21","7*9-54=9","1+3*3=10","18/6-3=0","1+56/8=8","152/19=8","250/5=50","1*2+9=11","4-8+13=9","384/48=8","55-17=38","9*3+4=31","7+7*2=21","7*4-6=22","8*87=696","3*18/6=9","9*4-32=4","14-5*2=4","64+32=96","3*54=162","128/8=16","63+30=93","343/49=7","280/7=40","42*1/7=6","110/5=22","49/7-6=1","295/59=5","72-41=31","13-4*3=1","30-6*4=6","315/9=35","39+47=86","7+8+8=23","5-8+10=7","8*3-3=21","12*3/6=6","42-20=22","5*4+2=22","27-3*8=3","18-2*5=8","96/8-3=9","3*7*1=21","1+13-5=9","198/99=2","2*1+9=11","6-1+9=14","574/82=7","4-12/3=0","9+3-2=10","6-54/9=0","95-33=62","4*4+4=20","8*22=176","1*3*5=15","40-4*9=4","12/4+1=4","98-11=87","3*6-12=6","3*5-3=12","6+9+2=17","11-6+2=7","133/7=19","54-31=23","1/8*32=4","6+8-1=13","9*1*2=18","26/2-5=8","8*8+4=68","56-18=38","77/7-6=5","5+4+8=17","5/1*7=35","186/62=3","60/4-8=7","88*4=352","26+29=55","4*6+7=31","4/20*5=1","1-5+10=6","51+30=81","270/5=54","1+9+9=19","14+84=98","5-12+8=1","24/6-3=1","43-12=31","5+6*4=29","3-8+14=9","1*12-9=3","9*4-27=9","416/8=52","98-71=27","12+3-7=8","112/14=8","1/2*12=6","30/3-9=1","79-40=39","3*7+4=25","4*6+4=28","54/6*1=9","2*4*9=72","396/9=44","5*5-2=23","1*8*9=72","41-4*8=9","360/4=90","14/7*4=8","8*90=720","51+44=95","7*7+9=58","1+5*8=41","53-40=13","9*2+8=26","7-30/6=2","46-32=14","3*7+1=22","2*4*7=56","8/1*2=16","3*8-8=16","3*6+9=27","228/3=76","54+42=96","696/87=8","8*9+2=74","7*2-1=13","31-15=16","288/8=36","9*9-76=5","84-35=49","6+6*5=36","3+9*6=57","3*1+8=11","7+9+8=24","8*6-46=2","71-49=22","88/8-6=5","36-3*9=9","41+55=96","58*4=232","8*70=560","9*99=891","62-26=36","9*3-25=2","48/8/6=1","30-18=12","2*59=118","4*6-1=23","54/2/9=3","19+58=77","8+9+2=19","6+5+4=15","32+18=50","378/7=54","17-2*7=3","8-11+3=0","7*70=490","62+30=92","5*5-18=7","11-5+1=7","79-48=31","3*5+1=16","63*3=189","48+47=95","22-9-8=5","1+12/4=4","81-36=45","15-9-1=5","19-9*2=1","13-1*6=7","9-1+5=13","9+7*5=44","4*8-2=30","7+9*3=34","16-7-1=8","57-27=30","2*9-13=5","8-54/9=2","666/74=9","136/17=8","33+48=81","8+7*3=29","44-7*5=9","9*16=144","19-2*6=7","7*3-12=9","84-52=32","4+18/6=7","4*9+2=38","42*1/6=7","5+3+9=17","7+14/7=9","7/14*4=2","31+47=78","72*6=432","4*7-4=24","30+18=48","12-3*3=3","459/51=9","11-9+5=7","91-75=16","4*9-36=0","15-6-4=5","71-59=12","9*7+8=71","38-6*6=2","10+14=24","27/3-3=6","1+6*2=13","37*9=333","49-34=15","12-2-9=1","49*8=392","41-26=15","13-2-8=3","399/7=57","38+44=82","9*4-34=2","52*5=260","87-9*9=6","8+3*3=17","68-42=26","7+2*7=21","7*7-40=9","9+8+6=23","9+3*4=21","76-22=54","48-6*7=6","392/49=8","7+4*6=31","1+5+9=15","3+11-7=7","8+4-11=1","9*9+1=82","275/55=5","25+10=35","3*4+9=21","7*16=112","76-25=51","12+2-7=7","84*8=672","7+2+1=10","4+10-8=6","41-27=14","22-9*2=4","7+4+5=16","8*3*1=24","1+12-5=8","712/89=8","9*7-7=56","9+8+2=19","14-3-4=7","18+21=39","48/2/6=4","3+14/7=5","67-41=26","59*7=413","9-14/7=7","19+69=88","9+3+4=16","7+7+1=15","22+47=69","16/2+1=9","228/38=6","89-41=48","37-6*5=7","73*4=292","4*9-6=30","88-31=57","6*6+8=44","7+5+2=14","10+72=82","8*3-16=8","51-7*6=9","24/8+3=6","5*5-21=4","8*4/2=16","3+13-8=8","99-31=68","7-5+9=11","23-2*7=9","40/4-1=9","17-8-6=3","10-4*2=2","7+3*9=34","111/37=3","11-1*8=3","3*10/6=5","2*7+5=19","14-1*7=7","6*3*4=72","72/6-3=9","7+3*5=22","11+5-7=9","4+9-1=12","99-41=58","1/4*24=6","9-16+8=1","5*4/20=1","71-53=18","21-9-5=7","7+8-14=1","90/6/3=5","11+49=60","12-4-1=7","20-8-5=7","9*71=639","20/5+2=6","15-8*1=7","48/8+2=8","35*8=280","168/8=21","180/30=6","5-25/5=0","6-1+6=11","80-54=26","259/7=37","172/43=4","1*6+5=11","6*63=378","213/71=3","78-58=20","94*7=658","6/3*6=12","42/6-7=0","64-42=22","9*55=495","36/9-1=3","59-37=22","7*6-34=8","89-9*9=8","540/90=6","19-6*3=1","9+9*7=72","99-70=29","2-3+10=9","12/4-2=1","33+63=96","6+7*7=55","1-7+15=9","10+24=34","8+6-14=0","13-5-8=0","20+65=85","25-2*8=9","70/7-9=1","5*8/1=40","24/6*2=8","8-28/4=1","15+18=33","6*7-38=4","42/2/3=7","60+28=88","7-12/3=3","7+8-3=12","9+5-14=0","55-20=35","9+3-1=11","27-9*3=0","62+14=76","2+6+8=16","30-9*3=3","192/6=32","89-61=28","13-5-7=1","44-6*6=8","99-19=80","7*5*2=70","7-12/6=5","8*9-63=9","49+48=97","11-4-1=6","470/94=5","40+18=58","5+16/4=9","16-9+2=9","5-3+9=11","9+7/7=10","68-28=40","12*2/3=8","9+9+4=22","9-15+9=3","306/9=34","340/68=5","10-6+2=6","3*71=213","79-44=35","62*8=496","98*3=294","64/4/2=8","9+4*3=21","5*94=470","7*6-36=6","13+22=35","4+9*7=67","2*9*3=54","67-25=42","7*77=539","2/4*14=7","18+41=59","24/2-7=5","120/60=2","10+1-2=9","70-38=32","6+2*8=22","18/3/3=2","40/4/5=2","55/5-3=8","49-8*6=1","7-14+8=1","2+7*8=58","38-10=28","414/6=69","8-2+5=11","8*8-2=62","10+46=56","12-5-7=0","392/98=4","308/44=7","5*3-14=1","56-7*7=7","68+23=91","12-7-3=2","10-8+6=8","207/3=69","4*4+5=21","190/2=95","15*3/9=5","92-50=42","24/6-4=0","9+3*2=15","147/49=3","747/83=9","3-4+10=9","54/9-1=5","6/12*4=2","89-18=71","28/4-4=3","19-5-9=5","6-3+7=10","2*53=106","372/93=4","7*7-6=43","3+7*9=66","192/32=6","1*11-7=4","2*2+8=12","9+9-13=5","4*6-23=1","4-2+9=11","66-51=15","192/64=3","88*6=528","8+3+7=18","14-1*6=8","5+4*8=37","9+6/6=10","28+32=60","5*9+3=48","540/6=90","234/78=3","53+42=95","9-10+3=2","216/3=72","24/4-1=5","3*63=189","5*1*4=20","258/6=43","15-2-6=7","47*8=376","6+8*2=22","83-41=42","3*6+6=24","9*6-8=46","9*9-9=72","24+23=47","53-9*5=8","7/14*2=1","32+49=81","30/5+2=8","3*8-22=2","97-31=66","405/9=45","31-5*6=1","5*51=255","19+44=63","81*8=648","9*5*2=90","42/7+2=8","1/8*72=9","6-12+8=2","2-10/5=0","98/7-8=6","69-50=19","584/8=73","7*2*3=42","752/8=94","79-67=12","144/36=4","1/9*36=4","8+5*3=23","33+44=77","4*6-8=16","3*7+3=24","32-17=15","9+5*9=54","6+9+1=16","45-7*6=3","30+51=81","4*96=384","9-11+2=0","3*66=198","9+2+4=15","71+20=91","7+8*7=63","6+9-12=3","59-46=13","2+16/8=4","64/8/2=4","14-8+2=8","36/3-3=9","93-20=73","9*6/2=27","13-1-5=7","65-12=53","5+13-9=9","6*8-44=4","8*6-4=44","22+56=78","1+4*7=29","98*2=196","1*7+9=16","1+9*9=82","9*2-2=16","6*34=204","168/21=8","8*25=200","2+4*6=26","66/6-8=3","8-32/8=4","10+52=62","2+1+8=11","5+6+6=17","5*4-2=18","7*90=630","4*5-19=1","5+8*7=61","93-76=17","8+8+7=23","95*2=190","9+6-1=14","7+9+2=18","2*6+3=15","9*1*8=72","4*7+8=36","6*7-6=36","40*1/5=8","8-9+10=9","5*6/10=3","2+7+8=17","8-48/6=0","4*6-9=15","3+35/7=8","1+9+6=16","5*73=365","72/9/4=2","21-7-8=6","60-11=49","43*3=129","462/7=66","9*25=225","44+27=71","79-9*8=7","50*3=150","6-16/4=2","62-31=31","52/4-8=5","8+4+2=14","4+16/4=8","75+20=95","17-8-5=4","8+9-6=11","34+32=66","9/3*7=21","498/83=6","1+6+9=16","40+42=82","9+8+8=25","27/3-4=5","8+9+9=26","42/6-3=4","92*7=644","28-3*7=7","11-5-5=1","74-57=17","9*66=594","39*8=312","56+28=84","3*5+3=18","2+3*5=17","96/6/4=4","11-9+1=3","165/5=33","6*5-21=9","8*3+2=26","4+8+9=21","5*39=195","84-70=14","33-7*4=5","8*4-29=3","8-40/5=0","194/97=2","93-39=54","2*4+4=12","11-9+3=5","1-9+15=7","184/92=2","5*7+8=43","62-44=18","3*43=129","12-3*4=0","15-6-8=1","8-49/7=1","10-9+4=5","57-6*8=9","63/9-3=4","31+22=53","1-6+14=9","9*2+6=24","44-8*5=4","6+1*5=11","48/2/4=6","249/83=3","56/8-5=2","9*4+2=38","27/3-8=1","7+2+8=17","52+31=83","216/8=27","14/7+4=6","16/4-4=0","7-4+8=11","1*3+8=11","96+9=105","12-4-2=6","8/16*6=3","103-97=6","45-30=15","96/8-8=4","5*7-26=9","48/8/1=6","11+5-8=8","4+1*8=12","8-25/5=3","81-68=13","301/43=7","96-17=79","99*4=396","49-9*5=4","18/6+6=9","5*49=245","14+46=60","98-19=79","74+25=99","6*5/15=2","7*82=574","357/7=51","44-5*7=9","9+6*4=33","5*4-4=16","75-9*8=3","12/6+7=9","8-13+6=1","2*6*1=12","12/1/3=4","57-19=38","62-52=10","51-6*8=3","22-8-9=5","4+4*9=40","15-6-3=6","35-16=19","33/3-6=5","5*7-30=5","3*45=135","96-43=53","3*92=276","10+1-8=3","34+37=71","1*9*9=81","3/7*21=9","55+12=67","94-65=29","114/57=2","27+11=38","6*8+6=54","76-57=19","5*7+7=42","268/4=67","54/9/3=2","10+45=55","8*5-37=3","1*14-9=5","63+15=78","8*4-1=31","31*9=279","99-49=50","100-2=98","38+47=85","58+34=92","2*83=166","280/56=5","3+7*5=38","189/7=27","36-23=13","57+22=79","72/8-6=3","27+20=47","2+12-8=6","384/4=96","8+6*6=44","28+55=83","4*8+7=39","8*9/1=72","2*72=144","9*26=234","50-13=37","8*4/16=2","73-10=63","54+34=88","60/5-6=6","648/8=81","5+12-9=8","84/6-6=8","42*7=294","11-1-3=7","6*6-2=34","58-41=17","6-8+10=8","98-54=44","3*42=126","100-98=2","94-42=52","6+6+7=19","12+36=48","1-8+16=9","89*3=267","6*6+4=40","88-25=63","67-32=35","20-6-5=9","7+7/1=14","36-19=17","35-6*5=5","16+35=51","7-1+8=14","280/5=56","5*3*2=30","2+8+8=18","50+48=98","117/39=3","4+8+5=17","1*7+5=12","11-4-2=5","10*1-8=2","29-10=19","59-44=15","9+8/8=10","16+49=65","8*2-3=13","20-3*5=5","44-19=25","6*8-9=39","20-8-3=9","71+23=94","2*7-3=11","49-16=33","7*4-3=25"]</script>
+<script>
+"use strict";
+// ---------------------------------------------------------------------------
+// Solver logic: a port of nerdlecalculator.ipynb (cells 1, 3, 4, 5 and the
+// "for daily nerdle" cell 8). Floating-point sums are done in the same order
+// as the notebook so tie-breaking matches it exactly.
+// ---------------------------------------------------------------------------
+const Solver = (() => {
+  const CHARS = "0123456789+-*/=";
+  const CI = {}; for (let i = 0; i < CHARS.length; i++) CI[CHARS[i]] = i;
+  const ALLG = 3280;                       // "GGGGGGGG" with B=0, G=1, P=2 in base 3
+  const POW3 = [2187, 729, 243, 81, 27, 9, 3, 1];
+  const isOp = c => c === "+" || c === "-" || c === "*" || c === "/";
+
+  function evaluate(expr) {
+    const nums = [], ops = []; let cur = "";
+    for (const c of expr) { if (isOp(c)) { nums.push(+cur); ops.push(c); cur = ""; } else cur += c; }
+    nums.push(+cur);
+    const terms = [nums[0]], addOps = [];
+    for (let i = 0; i < ops.length; i++) {
+      const o = ops[i], n = nums[i + 1];
+      if (o === "*") terms[terms.length - 1] *= n;
+      else if (o === "/") terms[terms.length - 1] /= n;
+      else { addOps.push(o); terms.push(n); }
+    }
+    let v = terms[0];
+    for (let i = 0; i < addOps.length; i++) v = addOps[i] === "+" ? v + terms[i + 1] : v - terms[i + 1];
+    return v;
+  }
+
+  // Cell 1: every 8-character equation (17,723), in the notebook's order.
+  function generate() {
+    const out = [];
+    const all = "0123456789+-*/";
+    for (const len of [4, 5, 6]) {
+      const buf = new Array(len);
+      const rec = (pos, ops, prevOp) => {
+        if (pos === len) {
+          if (ops === 0) return;
+          const lhs = buf.join("");
+          const v = evaluate(lhs);
+          if (!(v >= 0)) return;
+          if (!Number.isInteger(v) && !Number.isInteger(Math.round(v * 1e5) / 1e5)) return;
+          const res = String(Math.round(v));
+          if (lhs.length + res.length === 7) out.push(lhs + "=" + res);
+          return;
+        }
+        const choices = pos === 0 ? "123456789" : pos === len - 1 ? "0123456789" : all;
+        for (const c of choices) {
+          const op = isOp(c);
+          if (op && (prevOp || ops === 2)) continue;   // no consecutive ops, at most 2 ops
+          if (c === "0" && prevOp) continue;          // no lone or leading zeros
+          buf[pos] = c; rec(pos + 1, ops + (op ? 1 : 0), op);
+        }
+      };
+      rec(0, 0, false);
+    }
+    return out;
+  }
+
+  // Cell 2: two equations are "the same answer" if their numbers, operators and result match as a multiset.
+  function commKey(eq) {
+    const [lhs, res] = eq.split("=");
+    const m = lhs.match(/^(\d+)([+\-*/])(\d+)(?:([+\-*/])(\d+))?$/);
+    return [m[1], m[3], m[5] ?? "000", m[2], m[4] ?? "00", "=" + res].sort().join("|");
+  }
+
+  const eqs = generate();
+  const N = eqs.length;
+  const index = new Map(eqs.map((e, i) => [e, i]));
+  const codes = new Uint8Array(N * 8);
+  const cnts = new Uint8Array(N * 15);
+  const commId = new Int32Array(N);
+  const keyIds = new Map();
+  for (let i = 0; i < N; i++) {
+    const e = eqs[i];
+    for (let k = 0; k < 8; k++) { const c = CI[e[k]]; codes[i * 8 + k] = c; cnts[i * 15 + c]++; }
+    const key = commKey(e);
+    if (!keyIds.has(key)) keyIds.set(key, keyIds.size);
+    commId[i] = keyIds.get(key);
+  }
+
+  // Cell 3: guess_colors, as a base-3 code.
+  const tmp = new Int8Array(15), green = new Uint8Array(8);
+  function color(g, s) {
+    if (commId[g] === commId[s]) return ALLG;
+    const go = g * 8, so = s * 8, co = s * 15;
+    for (let k = 0; k < 15; k++) tmp[k] = cnts[co + k];
+    for (let k = 0; k < 8; k++) {
+      const c = codes[go + k];
+      if (c === codes[so + k]) { green[k] = 1; tmp[c]--; } else green[k] = 0;
+    }
+    let code = 0;
+    for (let k = 0; k < 8; k++) {
+      let d = 1;
+      if (!green[k]) { const c = codes[go + k]; if (tmp[c] > 0) { d = 2; tmp[c]--; } else d = 0; }
+      code += d * POW3[k];
+    }
+    return code;
+  }
+  function parseColors(str) {
+    let code = 0;
+    for (let k = 0; k < 8; k++) code += ({ B: 0, G: 1, P: 2 })[str[k]] * POW3[k];
+    return code;
+  }
+
+  // Sum over buckets in sorted color order of (1 if all green else 1/count) * count.
+  // This is the notebook's probability-in-2 numerator (and calc_metrics' test_value).
+  const bucket = new Int32Array(6561), touched = new Int32Array(6561);
+  function splitScore(g, C) {
+    let t = 0;
+    for (let i = 0; i < C.length; i++) { const k = color(g, C[i]); if (bucket[k]++ === 0) touched[t++] = k; }
+    const keys = touched.subarray(0, t).sort();
+    let s = 0;
+    for (let j = 0; j < t; j++) { const k = keys[j], c = bucket[k]; s += (k === ALLG ? 1.0 : 1.0 / c) * c; bucket[k] = 0; }
+    return s;
+  }
+  function sortedBuckets(g, C) {
+    const map = new Map();
+    for (const s of C) { const k = color(g, s); let b = map.get(k); if (!b) map.set(k, b = []); b.push(s); }
+    return [...map.keys()].sort((a, b) => a - b).map(k => [k, map.get(k)]);
+  }
+
+  // Cell 5, calc_metrics(metric_type=3): average number of guesses (assumes 4 at most), lower is better.
+  function metric3(g, C) {
+    if (C.length === 1) return 0;
+    let total = 0;
+    for (const [k, B] of sortedBuckets(g, C)) {
+      let best = null, test = 0;
+      for (const g2 of B) { const t = splitScore(g2, B); if (t > test) { test = t; best = g2; } }
+      let x;
+      if (k === ALLG) x = 1.0;
+      else if (B.length === 1) x = 2.0;
+      else {
+        let s = 0;
+        for (const [k2, B2] of sortedBuckets(best, B)) {
+          const c2 = B2.length;
+          s += k2 === ALLG ? 2.0 * c2 : (3.0 + 4.0 * (c2 - 1.0)) / c2 * c2;
+        }
+        x = s / B.length;
+      }
+      total += B.length * x;
+    }
+    return total / C.length;
+  }
+
+  return { eqs, N, index, color, parseColors, splitScore, metric3 };
+})();
+
+// ---------------------------------------------------------------------------
+// Page
+// ---------------------------------------------------------------------------
+const PAST = JSON.parse(document.getElementById("past-data").textContent);
+const ROWS = 6, STORE = "nerdle-solver-v1";
+const $ = id => document.getElementById(id);
+const rowsEl = $("rows");
+const rows = [];
+
+function cleanGuess(v) { return v.replace(/\s/g, "").replace(/[x×X]/g, "*").replace(/÷/g, "/").slice(0, 8); }
+
+for (let r = 0; r < ROWS; r++) {
+  const el = document.createElement("div");
+  el.className = "row";
+  el.innerHTML = `<div class="num">${r + 1}</div>
+    <input type="text" class="guess" maxlength="8" placeholder="guess" spellcheck="false" autocomplete="off" aria-label="Guess ${r + 1}">
+    <div class="tiles"></div>
+    <input type="text" class="colors" maxlength="8" placeholder="colors" spellcheck="false" autocomplete="off" aria-label="Colors ${r + 1}">
+    <div class="rowmsg"></div>`;
+  rowsEl.appendChild(el);
+  const row = { el, guess: el.querySelector(".guess"), colors: el.querySelector(".colors"),
+    tiles: el.querySelector(".tiles"), msg: el.querySelector(".rowmsg"), tileEls: [] };
+  for (let k = 0; k < 8; k++) {
+    const t = document.createElement("button");
+    t.type = "button"; t.className = "tile"; t.setAttribute("aria-label", `Row ${r + 1} tile ${k + 1}`);
+    t.addEventListener("click", () => {
+      const c = row.colors.value.toUpperCase().padEnd(8, " ").split("");
+      c[k] = ({ " ": "B", B: "P", P: "G", G: "B" })[c[k]] || "B";
+      row.colors.value = c.join("").replace(/\s+$/, "").toLowerCase();
+      onChange();
+    });
+    row.tiles.appendChild(t); row.tileEls.push(t);
+  }
+  row.guess.addEventListener("input", () => { row.guess.value = cleanGuess(row.guess.value); onChange(); });
+  row.colors.addEventListener("input", () => { row.colors.value = row.colors.value.toLowerCase().replace(/[^gpb]/g, ""); onChange(); });
+  row.guess.addEventListener("keydown", e => { if (e.key === "Enter") row.colors.focus(); });
+  row.colors.addEventListener("keydown", e => { if (e.key === "Enter" && rows[r + 1]) rows[r + 1].guess.focus(); });
+  rows.push(row);
+}
+
+function renderTiles() {
+  for (const row of rows) {
+    const g = row.guess.value, c = row.colors.value.toUpperCase();
+    row.tileEls.forEach((t, k) => {
+      t.textContent = g[k] || "";
+      t.className = "tile" + (c[k] ? " " + c[k] : "");
+    });
+  }
+}
+
+function save() {
+  try {
+    localStorage.setItem(STORE, JSON.stringify({
+      rows: rows.map(r => [r.guess.value, r.colors.value]),
+      excludePast: $("excludePast").checked, extraPast: $("extraPast").value }));
+  } catch (e) {}
+}
+function load() {
+  try {
+    const s = JSON.parse(localStorage.getItem(STORE) || "null"); if (!s) return;
+    s.rows.forEach(([g, c], i) => { if (rows[i]) { rows[i].guess.value = g; rows[i].colors.value = c; } });
+    $("excludePast").checked = s.excludePast !== false;
+    $("extraPast").value = s.extraPast || "";
+  } catch (e) {}
+}
+
+// Read the inputs. Returns { entries, error }.
+function readRows() {
+  const entries = []; let error = false;
+  for (const row of rows) {
+    row.msg.textContent = "";
+    const g = row.guess.value, c = row.colors.value.toUpperCase();
+    if (!g && !c) continue;
+    if (g.length < 8) { row.msg.textContent = "Guess needs 8 characters."; error = true; continue; }
+    if (!Solver.index.has(g)) { row.msg.textContent = `${g} isn't a valid Nerdle equation.`; error = true; continue; }
+    if (c.length < 8) { row.msg.textContent = c.length ? "Colors need 8 letters." : "Set the colors for this guess."; error = true; continue; }
+    entries.push({ g: Solver.index.get(g), code: Solver.parseColors(c) });
+  }
+  return { entries, error };
+}
+
+function pastSet() {
+  const extra = $("extraPast").value.split(/[\s,;]+/).filter(Boolean);
+  return new Set([...PAST, ...extra]);
+}
+
+let runId = 0, current = null, bestProb = 0;
+const tick = () => new Promise(r => setTimeout(r, 0));
+
+async function chunked(total, fn, id, label) {
+  const bar = $("progress"), fill = bar.firstElementChild;
+  let i = 0;
+  if (total > 400) bar.classList.add("on");
+  while (i < total) {
+    const end = performance.now() + 25;
+    while (i < total && performance.now() < end) fn(i++);
+    fill.style.width = (100 * i / total).toFixed(1) + "%";
+    setStatus(`${label} ${Math.floor(100 * i / total)}%`);
+    await tick();
+    if (id !== runId) throw "cancelled";
+  }
+  bar.classList.remove("on"); fill.style.width = "0";
+}
+
+function setStatus(text, err) { const s = $("status"); s.textContent = text; s.classList.toggle("err", !!err); }
+
+function eqButton(e, cls = "eq") {
+  const b = document.createElement("button");
+  b.type = "button"; b.className = cls; b.textContent = e; b.title = "Use as next guess";
+  b.setAttribute("aria-label", `Use ${e} as next guess`);
+  b.addEventListener("click", () => useGuess(e));
+  return b;
+}
+function useGuess(e) {
+  const row = rows.find(r => !r.guess.value) || rows[rows.length - 1];
+  row.guess.value = e; row.colors.value = "";
+  onChange(); row.colors.focus();
+}
+
+async function solve() {
+  const id = ++runId;
+  $("progress").classList.remove("on");
+  ["bestSection", "allSection", "listSection"].forEach(s => $(s).classList.add("hidden"));
+  $("allOut").innerHTML = "";
+  const { entries, error } = readRows();
+  if (error) { $("count").textContent = "–"; setStatus("Fix the highlighted guesses above.", true); return; }
+
+  const past = $("excludePast").checked ? pastSet() : new Set();
+  let C = [];
+  for (let i = 0; i < Solver.N; i++) if (!past.has(Solver.eqs[i])) C.push(i);
+  for (const { g, code } of entries) C = C.filter(s => Solver.color(g, s) === code);
+  current = C;
+
+  const n = C.length;
+  $("count").innerHTML = `${n.toLocaleString()}<small>possibilit${n === 1 ? "y" : "ies"} left</small>`;
+  renderList(C);
+
+  if (n === 0) {
+    setStatus("No equation matches these guesses and colors. Check each color string for a typo" +
+      ($("excludePast").checked ? ", or untick “Exclude past answers” in case the answer is a repeat." : "."), true);
+    return;
+  }
+  if (n === 1) { setStatus(""); showBest([{ e: Solver.eqs[C[0]], m: 1 }], 1, true); return; }
+  if (entries.length === 0) {
+    setStatus("Enter your first guess. Strong openers from your notebook:");
+    for (const e of ["54-38=16", "46+32=78", "52-34=18"]) $("status").append(" ", eqButton(e));
+    return;
+  }
+
+  // Cell 8: calc_single_best_guess(candidates, candidates), then the lowest metric 3 among the ties.
+  const scores = new Float64Array(n);
+  try {
+    await chunked(n, i => { scores[i] = Solver.splitScore(C[i], C) / n; }, id, "Finding the best guesses…");
+    let max = -1; for (const s of scores) if (s > max) max = s;
+    bestProb = max;
+    const tied = C.filter((_, i) => scores[i] === max);
+    const metrics = new Float64Array(tied.length);
+    await chunked(tied.length, i => { metrics[i] = Solver.metric3(tied[i], C); }, id, "Ranking the tied guesses…");
+    const ranked = tied.map((g, i) => ({ e: Solver.eqs[g], m: metrics[i] })).sort((a, b) => a.m - b.m);
+    setStatus("");
+    showBest(ranked, max, false);
+    $("allSection").classList.remove("hidden");
+  } catch (e) { if (e !== "cancelled") throw e; }
+}
+
+function showBest(ranked, prob, single) {
+  const body = $("bestBody"); body.innerHTML = "";
+  const min = ranked[0].m;
+  $("bestNote").textContent = single
+    ? "Only one answer is left."
+    : `${ranked.length === 1 ? "This guess has" : `These ${ranked.length} guesses tie for`} the best chance of finishing within 2 more guesses (${(prob * 100).toFixed(1)}%). ` +
+      "They're ranked by the notebook's metric 3: the average number of guesses to finish, counting this one, assuming you're done by the 4th.";
+  for (const { e, m } of ranked) {
+    const tr = document.createElement("tr");
+    if (m === min) tr.className = "top";
+    const td = document.createElement("td"); td.appendChild(eqButton(e));
+    const td2 = document.createElement("td"); td2.className = "num"; td2.textContent = single ? "1" : m.toFixed(3);
+    tr.append(td, td2); body.appendChild(tr);
+  }
+  $("bestSection").classList.remove("hidden");
+}
+
+async function searchAll() {
+  const id = runId, C = current;
+  if (!C || C.length < 2) return;
+  const btn = $("allBtn"); btn.disabled = true;
+  const scores = new Float64Array(Solver.N);
+  try {
+    await chunked(Solver.N, i => { scores[i] = Solver.splitScore(i, C) / C.length; }, id, "Checking all equations…");
+    let max = -1; for (const s of scores) if (s > max) max = s;
+    const inC = new Set(C);
+    const best = []; for (let i = 0; i < Solver.N; i++) if (scores[i] === max) best.push(i);
+    best.sort((a, b) => inC.has(b) - inC.has(a));   // possible answers first
+    const out = $("allOut"); out.innerHTML = "";
+    const p = document.createElement("p");
+    p.textContent = `${best.length.toLocaleString()} equation${best.length === 1 ? "" : "s"} tie for the best chance of finishing within 2 more guesses (${(max * 100).toFixed(1)}%). ` +
+      (max > bestProb
+        ? "That beats the best guess above, but only the ones marked “possible answer” can also win outright."
+        : "That's no better than the best guess above, which can also be the answer, so stick with that one.");
+    const chips = document.createElement("div"); chips.className = "chips";
+    for (const i of best.slice(0, 300)) {
+      const b = eqButton(Solver.eqs[i], "chip");
+      if (inC.has(i)) { const s = document.createElement("span"); s.className = "badge"; s.textContent = "possible answer"; b.append(s); }
+      chips.appendChild(b);
+    }
+    out.append(p, chips);
+    if (best.length > 300) { const m = document.createElement("p"); m.textContent = `Showing the first 300.`; out.append(m); }
+    setStatus("");
+  } catch (e) { if (e !== "cancelled") throw e; }
+  btn.disabled = false;
+}
+
+function renderList(C) {
+  $("listSection").classList.toggle("hidden", C.length === 0);
+  $("listSummary").textContent = `All ${C.length.toLocaleString()} remaining possibilit${C.length === 1 ? "y" : "ies"}`;
+  drawChips();
+}
+function drawChips() {
+  const C = current || [], f = $("listFilter").value.trim();
+  const chips = $("chips"); chips.innerHTML = "";
+  if (!$("listDetails").open) return;
+  const list = C.map(i => Solver.eqs[i]).filter(e => !f || e.includes(f));
+  const LIMIT = 3000;
+  for (const e of list.slice(0, LIMIT)) chips.appendChild(eqButton(e, "chip"));
+  if (list.length > LIMIT) {
+    const m = document.createElement("div"); m.className = "hint";
+    m.textContent = `Showing ${LIMIT.toLocaleString()} of ${list.length.toLocaleString()}. Type in the filter to narrow it down.`;
+    chips.appendChild(m);
+  }
+  if (!list.length) { const m = document.createElement("div"); m.className = "hint"; m.textContent = "No matches."; chips.appendChild(m); }
+}
+
+let timer = null;
+function onChange() { renderTiles(); save(); clearTimeout(timer); timer = setTimeout(solve, 250); }
+
+$("excludePast").addEventListener("change", onChange);
+$("extraPast").addEventListener("input", onChange);
+$("clearBtn").addEventListener("click", () => { rows.forEach(r => { r.guess.value = ""; r.colors.value = ""; }); onChange(); rows[0].guess.focus(); });
+$("allBtn").addEventListener("click", searchAll);
+$("listDetails").addEventListener("toggle", drawChips);
+$("listFilter").addEventListener("input", drawChips);
+
+$("pastCount").textContent = PAST.length.toLocaleString();
+load(); renderTiles(); solve();
+</script>
+</body>
+</html>
